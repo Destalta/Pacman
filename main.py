@@ -455,32 +455,37 @@ class Collection:
         self.tile_inputs = []
         self.tile_inputs.extend(self.numbers)
         self.tile_inputs.extend(self.keyboard_layout)
-        self.vertex_sets = dict()
-        self.vertex_sets["square"] = [Vector2(-1, 1), Vector2(1, 1), Vector2(1, -1), Vector2(-1, -1), Vector2(-1, 1)]
-        single = self.mirror([Vector2(-1, 0), Vector2(-1, 0.5), Vector2(-0.75, 0.75), Vector2(0.75, 0.75), Vector2(1, 0.5),Vector2(1, 0)])
-        self.vertex_sets["single_h"] = single
-        self.vertex_sets["single_v"] = self.rotate(single, 90)
+        self.vertex_sets = []
+        self.vertex_sets.append(None)
         pipe = self.mirror([Vector2(-1, 0.75), Vector2(1, 0.75), "*"])
-        self.vertex_sets["pipe_h"] = pipe
-        self.vertex_sets["pipe_v"] = self.rotate(pipe, 90)
-        pipe_corner = [Vector2(-1, 0.75), Vector2(0.55, 0.75), Vector2(0.75, 0.55), Vector2(0.75, -1), "*"]
-        self.vertex_sets["pipe_corner_1"] = pipe_corner
-        self.vertex_sets["pipe_corner_2"] = self.rotate(pipe_corner, 90)
-        self.vertex_sets["pipe_corner_3"] = self.rotate(pipe_corner, 180)
-        self.vertex_sets["pipe_corner_4"] = self.rotate(pipe_corner, 270)
+        self.vertex_sets.append(pipe)
+        self.vertex_sets.append(self.rotate(pipe, 90))
+        pipe_corner = [Vector2(-1, 0.75), Vector2(0.55, 0.75), Vector2(0.75, 0.55), Vector2(0.75, -1), "*", Vector2(-1, -0.75), Vector2(-0.75, -1)]
+        self.vertex_sets.append(pipe_corner)
+        self.vertex_sets.append(self.rotate(pipe_corner, 90))
+        self.vertex_sets.append(self.rotate(pipe_corner, 180))
+        self.vertex_sets.append(self.rotate(pipe_corner, 270))
         pipe_cap = [Vector2(-1, 0.75), Vector2(0.75, 0.75), Vector2(0.75, -0.75), Vector2(-1, -0.75)]
-        self.vertex_sets["pipe_cap_1"] = pipe_cap
-        self.vertex_sets["pipe_cap_2"] = self.rotate(pipe_cap, 90)
-        self.vertex_sets["pipe_cap_3"] = self.rotate(pipe_cap, 180)
-        self.vertex_sets["pipe_cap_4"] = self.rotate(pipe_cap, 270)
-        thin_pipe = [Vector2(-1, 0.5), Vector2(1, 0.5), "*"]
-        self.vertex_sets["thin_pipe_h"] = thin_pipe
-        self.vertex_sets["thin_pipe_h"] = self.rotate(thin_pipe, 90)
-        thin_pipe_corner = [Vector2(-1, 0.5), Vector2(0.55, 0.5), Vector2(0.75, 0.35), Vector2(0.75, -1), "*"]
-        self.vertex_sets["thin_pipe_corner_1"] = thin_pipe_corner
-        self.vertex_sets["thin_pipe_corner_2"] = self.rotate(thin_pipe_corner, 90)
-        self.vertex_sets["thin_pipe_corner_3"] = self.rotate(thin_pipe_corner, 180)
-        self.vertex_sets["thin_pipe_corner_4"] = self.rotate(thin_pipe_corner, 270)
+        self.vertex_sets.append(pipe_cap)
+        self.vertex_sets.append(self.rotate(pipe_cap, 90)) 
+        self.vertex_sets.append(self.rotate(pipe_cap, 180))
+        self.vertex_sets.append(self.rotate(pipe_cap, 270))
+        thin_pipe = self.mirror([Vector2(-1, 0.5), Vector2(1, 0.5), "*"])
+        self.vertex_sets.append(thin_pipe)
+        self.vertex_sets.append(self.rotate(thin_pipe, 90))
+        thin_pipe_corner = [Vector2(-1, 0.5), Vector2(0.5, 0.5), Vector2(0.5, -1), "*", Vector2(-1, -0.5), Vector2(-0.5, -1)]
+        self.vertex_sets.append(thin_pipe_corner) 
+        self.vertex_sets.append(self.rotate(thin_pipe_corner, 90))
+        self.vertex_sets.append(self.rotate(thin_pipe_corner, 180))
+        self.vertex_sets.append(self.rotate(thin_pipe_corner, 270))
+        thin_pipe_cap = [Vector2(-1, 0.5), Vector2(0.5, 0.5), Vector2(0.5, -0.5), Vector2(-1, -0.5)]
+        self.vertex_sets.append(thin_pipe_cap)
+        self.vertex_sets.append(self.rotate(thin_pipe_cap, 90)) 
+        self.vertex_sets.append(self.rotate(thin_pipe_cap, 180))
+        self.vertex_sets.append(self.rotate(thin_pipe_cap, 270))
+        wad = self.mirror([Vector2(-1, 0), Vector2(-1, 0.5), Vector2(-0.75, 0.75), Vector2(0.75, 0.75), Vector2(1, 0.5),Vector2(1, 0)])
+        self.vertex_sets.append(wad)
+        self.vertex_sets.append(self.rotate(wad, 90))
 
     def mirror(self, vertex_set, vert=True, hor=False):
         half = []
@@ -495,7 +500,7 @@ class Collection:
             if hor:
                 new_pos.x = -vertex.x
             half.append(new_pos)
-        return vertex_set + half;
+        return vertex_set + half
 
     def rotate(self, vertex_set, angle):
         new_vertex_set = []
@@ -533,6 +538,8 @@ class Grid(Component):
         self.tile_type = 1
         self.editor_mode = True
         self.debug_mode = False
+        self.past_matrices = []
+        self.past_matrix = None
 
     def update(self):
         if not self.editor_mode:
@@ -610,58 +617,18 @@ class Grid(Component):
         self.game_object.transform.position.y = -(self.grid_dimensions.y * self.tile_size.y) / 2
 
     def render_grid(self):
+        vertex_set_count = len(collection.vertex_sets)
         self.pen.clear()
         for x in range(0, len(self.matrix)):
             for y in range(0, len(self.matrix[x])):
                 tile = self.matrix[x][y]
                 vertices = []
-                pen_color = "black"
+                pen_color = "blue"
                 fill_color = "black"
-                if tile.tile_type == 0:
-                    vertices = []
-                    pen_color = None
-                    fill_color = None
-                elif tile.tile_type == 1:
-                    vertices = collection.vertex_sets["pipe_h"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 2:
-                    vertices = collection.vertex_sets["pipe_v"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 3:
-                    vertices = collection.vertex_sets["pipe_corner_1"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 4:
-                    vertices = collection.vertex_sets["pipe_corner_2"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 5:
-                    vertices = collection.vertex_sets["pipe_corner_3"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 6:
-                    vertices = collection.vertex_sets["pipe_corner_4"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 7:
-                    vertices = collection.vertex_sets["pipe_cap_1"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 8:
-                    vertices = collection.vertex_sets["pipe_cap_2"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 9:
-                    vertices = collection.vertex_sets["pipe_cap_3"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                elif tile.tile_type == 10:
-                    vertices = collection.vertex_sets["pipe_cap_4"]
-                    pen_color = "blue"
-                    fill_color = "black"
-                if len(vertices) == 0 or (pen_color is None and pen_color is None):
+                if tile.tile_type < vertex_set_count:
+                    vertices = collection.vertex_sets[tile.tile_type]
+                
+                if vertices is None or len(vertices) == 0 or (pen_color is None and pen_color is None):
                     continue
                 if pen_color is not None:
                     self.pen.pencolor(pen_color)
@@ -682,6 +649,11 @@ class Grid(Component):
                 if self.debug_mode:
                     self.pen.pencolor("white")
                     self.pen.write(str(tile.tile_type), align="center")
+
+    def record_matrix(self):
+        if self.past_matrix is not None and self.past_matrix != self.matrix:
+            self.past_matrices.append(self)
+            self.past_matrix = self.matrix
 
     def save_grid_to_text_file(self):
         filename = screen.textinput("Save map", "Enter the name of your map")
