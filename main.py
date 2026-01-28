@@ -1,6 +1,4 @@
 import math
-import random
-import time
 import turtle
 import copy
 
@@ -494,6 +492,8 @@ class Collection:
         self.vertex_sets.append(self.rotate(wad, 90))
         self.vertex_sets.append(None)
 
+        self.air_tile_types = [0, 36]
+
     def mirror(self, vertex_set, vert=True, hor=False):
         half = []
         for i in range(0, len(vertex_set)):
@@ -529,6 +529,9 @@ class Tile:
         self.grid_position = grid_position
         self.world_position = world_position
         self.tile_type = tile_type
+        self.f = 0
+        self.g = 0
+        self.q = 0
 
 
 class Grid(Component):
@@ -690,6 +693,31 @@ class Grid(Component):
         self.calculate_coordinates()
         self.record_matrix()
 
+    def get_path(self, start_tile, end_tile):
+        open_list = [start_tile]
+        closed_list = []
+        path = []
+
+        found_destination = False
+
+        while len(open_list) > 0:
+            current_tile = open_list.pop()
+            directions = [Vector2(0, 1), Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]
+            for dir in directions:
+                next_tile = self.matrix[current_tile.grid_position.x + dir.x][current_tile.grid_position.y + dir.y]
+                if next_tile is not None and next_tile.tile_type in collection.air_tile_types and next_tile not in closed_list:
+                    if next_tile == end_tile:
+                        found_destination = True
+                        return
+                    else:
+                        next_tile.g = current_tile.g + 1
+                        next_tile.h = abs(current_tile.x - end_tile.x) + abs(current_tile.y - end_tile.y)
+                        next_tile.f = next_tile.g + next_tile.h
+                    
+                    if next_tile not in open_list or next_tile.f < current_tile.f:
+                        open_list.append(next_tile)
+        return path.reverse()
+
     def center_grid(self):
         self.game_object.transform.position.x = -(self.grid_dimensions.x * self.tile_size.x) / 2
         self.game_object.transform.position.y = -(self.grid_dimensions.y * self.tile_size.y) / 2
@@ -776,13 +804,15 @@ class Entity(Component):
     def start(self):
         pass
 
-    def update(self):
-        grid_pos = grid.get_closest_tile_by_screen_position(self.game_object.transform.position).grid_position
-        next_grid_pos = grid_pos + self.true_move_input
-        tile = grid.matrix[next_grid_pos.x][next_grid_pos.y]
-        if tile.tile_type == 0:
-            self.true_move_input = self.move_input
-            self.game_object.transform.position += self.true_move_input * self.move_speed
+    def update(self):    
+        closest_tile = grid.get_closest_tile_by_screen_position(self.game_object.transform.position)
+        if closest_tile is not None:
+            next_grid_pos = closest_tile.grid_position + self.move_input
+            tile = grid.matrix[next_grid_pos.x][next_grid_pos.y]
+            if tile.tile_type not in collection.air_tile_types:
+                return
+        self.true_move_input = self.move_input
+        self.game_object.transform.position += self.true_move_input * self.move_speed
 
 class Player(Component):
     def __init__(self):
@@ -790,8 +820,9 @@ class Player(Component):
 
     def start(self):
         self.entity = self.game_object.get_component(Entity)
-        if len(grid.find_tiles_by_type(23)) > 0:
-            self.game_object.transform.position = grid.find_tiles_by_type(23)[0].world_position
+        spawn_tiles = grid.find_tiles_by_type(36)
+        if len(spawn_tiles) > 0:
+            self.game_object.transform.position = spawn_tiles[0].world_position
 
     def update(self):
         if input_manager.get_key_down("Up") or input_manager.get_key_down("w"):
@@ -802,6 +833,45 @@ class Player(Component):
             self.entity.move_input = Vector2(0, -1)
         if input_manager.get_key_down("Left") or input_manager.get_key_down("a"):
             self.entity.move_input = Vector2(-1, 0)
+
+class Ghost(Component):
+    def __init__(self):
+        self.entity = None
+        self.path_points = []
+        self.path_index = 0
+
+    def start(self):
+        self.entity = self.game_object.get_component(Entity)
+        spawn_tiles = grid.find_tiles_by_type(35)
+        if len(spawn_tiles) > 0:
+            self.game_object.transform.position = spawn_tiles[0].world_position
+
+    def update(self):
+        closest_tile = grid.get_closest_tile_by_screen_position(self.game_object.transform.position)
+        player_closest_tile = grid.get_closest_tile_by_screen_position(pacman.game_object.transform.position)
+        if closest_tile is not None:
+            self.path_points = grid.get_path(closest_tile, player_closest_tile)
+            self.path_index = 0
+
+        for i in range(0, len(self.path_points)):
+            path_point = self.path_points[i]
+
+            if path_point.x > self.game_object.transform.position.x:
+                self.move_input.x = 1
+            elif path_point.x < self.game_object.transform.position.x:
+                self.move_input.x = -1
+            else:
+                self.move_input.x = 0
+
+            if path_point.y > self.game_object.transform.position.y:
+                self.move_input.y = 1
+            elif path_point.y < self.game_object.transform.position.y:
+                self.move_input.y = -1
+            else:
+                self.move_input.y = 0
+    
+    
+        
 
 render_objects = []
 game_objects = []
@@ -824,7 +894,9 @@ grid = GameObject().add_component(Grid())
 grid.create(Vector2(31, 21))
 grid.import_grid_from_text_file("")
 
-box = GameObject(starting_comps=[Sprite("square", "yellow"), Entity(), Player()])
+pacman = GameObject(starting_comps=[Sprite("square", "yellow"), Entity(), Player()])
+
+blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost()])
 
 def refresh_screen():
     sorted_render_objects = render_objects
