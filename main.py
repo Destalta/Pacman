@@ -2,6 +2,7 @@ import math
 import random
 import time
 import turtle
+import copy
 
 fps = 60
 
@@ -29,7 +30,7 @@ class Component:
     def start(self):
         pass
 
-    def on_delete():
+    def on_delete(self):
         pass
 
 
@@ -180,6 +181,11 @@ class GameObject(Component):
         comp.game_object = self
         comp.start()
         return comp
+
+    def get_component(self, comp_type):
+        for comp in self.components:
+            if isinstance(comp, comp_type):
+                return comp
 
     def remove_component(self, comp):
         self.components.remove(comp)
@@ -391,8 +397,8 @@ class Input:
         self.mouse_button_right_down = False
         screen.getcanvas().bind('<ButtonPress-1>', self.on_mouse_button_left_down)
         screen.getcanvas().bind('<ButtonRelease-1>', self.on_mouse_button_left_up)
-        screen.getcanvas().bind('<ButtonPress-2>', self.on_mouse_button_right_down)
-        screen.getcanvas().bind('<ButtonRelease-2>', self.on_mouse_button_right_up)
+        screen.getcanvas().bind('<ButtonPress-3>', self.on_mouse_button_right_down)
+        screen.getcanvas().bind('<ButtonRelease-3>', self.on_mouse_button_right_up)
 
         self.keys += collection.keyboard_layout
         self.keys += collection.numbers
@@ -467,25 +473,26 @@ class Collection:
         self.vertex_sets.append(self.rotate(pipe_corner, 270))
         pipe_cap = [Vector2(-1, 0.75), Vector2(0.75, 0.75), Vector2(0.75, -0.75), Vector2(-1, -0.75)]
         self.vertex_sets.append(pipe_cap)
-        self.vertex_sets.append(self.rotate(pipe_cap, 90)) 
+        self.vertex_sets.append(self.rotate(pipe_cap, 90))
         self.vertex_sets.append(self.rotate(pipe_cap, 180))
         self.vertex_sets.append(self.rotate(pipe_cap, 270))
         thin_pipe = self.mirror([Vector2(-1, 0.5), Vector2(1, 0.5), "*"])
         self.vertex_sets.append(thin_pipe)
         self.vertex_sets.append(self.rotate(thin_pipe, 90))
         thin_pipe_corner = [Vector2(-1, 0.5), Vector2(0.5, 0.5), Vector2(0.5, -1), "*", Vector2(-1, -0.5), Vector2(-0.5, -1)]
-        self.vertex_sets.append(thin_pipe_corner) 
+        self.vertex_sets.append(thin_pipe_corner)
         self.vertex_sets.append(self.rotate(thin_pipe_corner, 90))
         self.vertex_sets.append(self.rotate(thin_pipe_corner, 180))
         self.vertex_sets.append(self.rotate(thin_pipe_corner, 270))
         thin_pipe_cap = [Vector2(-1, 0.5), Vector2(0.5, 0.5), Vector2(0.5, -0.5), Vector2(-1, -0.5)]
         self.vertex_sets.append(thin_pipe_cap)
-        self.vertex_sets.append(self.rotate(thin_pipe_cap, 90)) 
+        self.vertex_sets.append(self.rotate(thin_pipe_cap, 90))
         self.vertex_sets.append(self.rotate(thin_pipe_cap, 180))
         self.vertex_sets.append(self.rotate(thin_pipe_cap, 270))
         wad = self.mirror([Vector2(-1, 0), Vector2(-1, 0.5), Vector2(-0.75, 0.75), Vector2(0.75, 0.75), Vector2(1, 0.5),Vector2(1, 0)])
         self.vertex_sets.append(wad)
         self.vertex_sets.append(self.rotate(wad, 90))
+        self.vertex_sets.append(None)
 
     def mirror(self, vertex_set, vert=True, hor=False):
         half = []
@@ -537,30 +544,91 @@ class Grid(Component):
         self.matrix = [[]]
         self.tile_type = 1
         self.editor_mode = True
-        self.debug_mode = False
+        self.debug_mode = True
         self.past_matrices = []
         self.past_matrix = None
+        self.undo_index = 0
+        self.undo_length = 99
+
+        self.painting = False
+        self.erasing = False
+
 
     def update(self):
         if not self.editor_mode:
             return
-        
-        if input_manager.get_key("Control_L") and input_manager.get_key_down("s"):
-            self.save_grid_to_text_file()
+
+        if input_manager.get_key("Control_L") and input_manager.get_key_down("z"):
+            self.undo()
+        elif input_manager.get_key("Control_L") and input_manager.get_key_down("y"):
+            self.redo()
+        elif input_manager.get_key("Control_L") and input_manager.get_key_down("s"):
+            filename = screen.textinput("Save map", "Enter the name of your map")
+            input_manager.internal_up("Control_L")
+            input_manager.internal_up("s")
+            screen.listen()
+            self.save_grid_to_text_file(filename)
         elif input_manager.get_key("Control_L") and input_manager.get_key_down("i"):
-            self.import_grid_from_text_file()
-        elif input_manager.mouse_button_left_down:
-            self.paint_square(input_manager.mouse_pos)
-        elif input_manager.mouse_button_right_down:
-            self.erase_square(input_manager.mouse_pos)
-        elif input_manager.get_key("Control_L") and input_manager.get_key_down("d"):
-            self.debug_mode = not self.debug_mode
-            self.render_grid()
+            filename = screen.textinput("Import map", "Enter the name of your map")
+            input_manager.internal_up("Control_L")
+            input_manager.internal_up("i")
+            screen.listen()
+            self.import_grid_from_text_file(filename)
         elif collection.tile_inputs is not None:
             for i in range(0, len(collection.tile_inputs)):
                 char = str(collection.tile_inputs[i])
                 if input_manager.get_key(char):
                     self.tile_type = i + 1
+        elif input_manager.get_key("Control_L") and input_manager.get_key_down("d"):
+            self.debug_mode = not self.debug_mode
+            self.render_grid()
+
+        if input_manager.mouse_button_left_down:
+            if not self.painting:
+                self.painting = True
+            self.paint_square(input_manager.mouse_pos)
+        else:
+            if self.painting:
+                self.painting = False
+                self.record_matrix()
+        if input_manager.mouse_button_right_down:
+            if not self.erasing:
+                self.erasing = True
+            self.erase_square(input_manager.mouse_pos)
+        else:
+            if self.erasing:
+                self.erasing = False
+                self.record_matrix()
+
+        # if input_manager.get_key_down("Left"):
+        #     self.shift_grid(Vector2(-1, 0))
+        # elif input_manager.get_key_down("Right"):
+        #     self.shift_grid(Vector2(1, 0))
+        # elif input_manager.get_key_down("Up"):
+        #     self.shift_grid(Vector2(-1, 1))
+        # elif input_manager.get_key_down("Down"):
+        #     self.shift_grid(Vector2(0, -1))
+
+    def undo(self):
+        if len(self.past_matrices) > 1:
+            self.past_matrices.pop()
+            self.matrix = copy.deepcopy(self.past_matrices[len(self.past_matrices) - 1])
+            self.render_grid()
+
+    def shift_grid(self, direction):
+        for x in range(0, len(self.matrix)):
+            for y in range(0, len(self.matrix[x])):
+                tile = self.matrix[x][y]
+                new_x = int(x + direction.x)
+                new_y = int(y + direction.y)
+                if 0 <= new_x < len(self.matrix) and 0 <= new_y < len(self.matrix[0]):
+                    new_tile = self.matrix[new_x][new_y]
+                    my_tile_type = tile.tile_type
+                    tile.tile_type = 0
+                    new_tile.tile_type = my_tile_type
+        self.record_matrix()
+        self.calculate_coordinates()
+        self.render_grid()
 
     def erase_square(self, screen_pos):
         closest_tile = self.get_closest_tile_by_screen_position(screen_pos)
@@ -572,8 +640,17 @@ class Grid(Component):
         closest_tile = self.get_closest_tile_by_screen_position(screen_pos)
         if closest_tile is not None:
             closest_tile.tile_type = self.tile_type
-
             self.render_grid()
+    
+    def find_tiles_by_type(self, tile_type):
+        tiles = []
+        for i in range(0, len(self.matrix)):
+            for j in range(0, len(self.matrix[i])):
+                tile = self.matrix[i][j]
+                if tile.tile_type == tile_type:
+                    tiles.append(tile)
+        return tiles
+
 
     def get_closest_tile_by_screen_position(self, screen_pos):
         if self.matrix[0][0].world_position is None:
@@ -611,6 +688,7 @@ class Grid(Component):
                 self.matrix[x].append(new_tile)
         self.center_grid()
         self.calculate_coordinates()
+        self.record_matrix()
 
     def center_grid(self):
         self.game_object.transform.position.x = -(self.grid_dimensions.x * self.tile_size.x) / 2
@@ -625,25 +703,27 @@ class Grid(Component):
                 vertices = []
                 pen_color = "blue"
                 fill_color = "black"
+                will_skip = False
                 if tile.tile_type < vertex_set_count:
                     vertices = collection.vertex_sets[tile.tile_type]
-                
-                if vertices is None or len(vertices) == 0 or (pen_color is None and pen_color is None):
-                    continue
-                if pen_color is not None:
-                    self.pen.pencolor(pen_color)
-                if fill_color is not None:
-                    self.pen.fillcolor(fill_color)
 
-                for i in range(len(vertices)):
-                    vertex = vertices[i]
-                    if vertex == "*":
-                        self.pen.penup()
-                        continue
-                    pos = tile.world_position + (vertex * self.tile_size * 0.5)
-                    self.pen.goto(pos.x, pos.y)
-                    self.pen.pendown()
-                
+                if vertices is None or len(vertices) == 0 or (pen_color is None and pen_color is None):
+                    will_skip = True
+                if not will_skip:
+                    if pen_color is not None:
+                        self.pen.pencolor(pen_color)
+                    if fill_color is not None:
+                        self.pen.fillcolor(fill_color)
+
+                    for i in range(len(vertices)):
+                        vertex = vertices[i]
+                        if vertex == "*":
+                            self.pen.penup()
+                            continue
+                        pos = tile.world_position + (vertex * self.tile_size * 0.5)
+                        self.pen.goto(pos.x, pos.y)
+                        self.pen.pendown()
+
                 self.pen.penup()
                 self.pen.goto(tile.world_position.x, tile.world_position.y)
                 if self.debug_mode:
@@ -651,39 +731,77 @@ class Grid(Component):
                     self.pen.write(str(tile.tile_type), align="center")
 
     def record_matrix(self):
-        if self.past_matrix is not None and self.past_matrix != self.matrix:
-            self.past_matrices.append(self)
-            self.past_matrix = self.matrix
+        matrix_copy = copy.deepcopy(self.matrix)
+        self.past_matrices.append(matrix_copy)
+        if len(self.past_matrices) > self.undo_length:
+            del self.past_matrices[0]
 
-    def save_grid_to_text_file(self):
-        filename = screen.textinput("Save map", "Enter the name of your map")
+    def save_grid_to_text_file(self, filename):
         if filename is not None:
-            with open(filename + ".txt", "w") as file:
-                for x in range(0, len(self.matrix)):
-                    if x > 0:
-                        file.write("\n")
-                    for y in range(0, len(self.matrix[x])):
-                        tile = self.matrix[x][y]
-                        file.write(str(tile.tile_type) + ",")
-        screen.listen()
+            file = open(filename + ".txt", "w")
+            for x in range(0, len(self.matrix)):
+                if x > 0:
+                    file.write("\n")
+                for y in range(0, len(self.matrix[x])):
+                    tile = self.matrix[x][y]
+                    file.write(str(tile.tile_type) + ",")
+            file.close()
 
-    def import_grid_from_text_file(self):
-        filename = screen.textinput("Import map", "Enter the name of your map")
+    def import_grid_from_text_file(self, filename):
         if filename is not None:
-            with open(filename + ".txt") as file:
-                txt = file.read()
-                lines = txt.split("\n")
-                for x in range(0, len(lines)):
-                    entries = lines[x].split(",")
-                    for y in range(0, len(entries)):
-                        char = entries[y]
-                        if char == "":
-                            continue
-                        new_grid_pos = Vector2(x, y)
-                        self.matrix[x][y] = Tile(new_grid_pos, self.grid_to_world_position(new_grid_pos), int(char))
+            try:
+                file = open(filename + ".txt")
+            except FileNotFoundError:
+                print("File does not exist")
+                return
+            txt = file.read()
+            lines = txt.split("\n")
+            for x in range(0, len(lines)):
+                entries = lines[x].split(",")
+                for y in range(0, len(entries)):
+                    char = entries[y]
+                    if char == "":
+                        continue
+                    new_grid_pos = Vector2(x, y)
+                    self.matrix[x][y] = Tile(new_grid_pos, self.grid_to_world_position(new_grid_pos), int(char))
+            file.close()
         self.render_grid()
-        screen.listen()
 
+class Entity(Component):
+    def __init__(self):
+        self.move_input = Vector2(0, 0)
+        self.true_move_input = Vector2(1, 0)
+        self.move_speed = 2
+
+    def start(self):
+        pass
+
+    def update(self):
+        grid_pos = grid.get_closest_tile_by_screen_position(self.game_object.transform.position).grid_position
+        next_grid_pos = grid_pos + self.true_move_input
+        tile = grid.matrix[next_grid_pos.x][next_grid_pos.y]
+        if tile.tile_type == 0:
+            self.true_move_input = self.move_input
+            self.game_object.transform.position += self.true_move_input * self.move_speed
+
+class Player(Component):
+    def __init__(self):
+        self.entity = None
+
+    def start(self):
+        self.entity = self.game_object.get_component(Entity)
+        if len(grid.find_tiles_by_type(23)) > 0:
+            self.game_object.transform.position = grid.find_tiles_by_type(23)[0].world_position
+
+    def update(self):
+        if input_manager.get_key_down("Up") or input_manager.get_key_down("w"):
+            self.entity.move_input = Vector2(0, 1)
+        if input_manager.get_key_down("Right") or input_manager.get_key_down("d"):
+            self.entity.move_input = Vector2(1, 0)
+        if input_manager.get_key_down("Down") or input_manager.get_key_down("s"):
+            self.entity.move_input = Vector2(0, -1)
+        if input_manager.get_key_down("Left") or input_manager.get_key_down("a"):
+            self.entity.move_input = Vector2(-1, 0)
 
 render_objects = []
 game_objects = []
@@ -701,14 +819,12 @@ screen_dimensions = Vector2(1280, 720)
 black_bars = GameObject().add_component(BlackBars(screen_dimensions))
 screen.setup(screen_dimensions.x, screen_dimensions.y)
 
-box = GameObject().add_component(Sprite("square", "black"))
-box.game_object.transform.position = Vector2(-100, 50)
-
 input_manager = Input()
 grid = GameObject().add_component(Grid())
 grid.create(Vector2(31, 21))
-grid.render_grid()
+grid.import_grid_from_text_file("")
 
+box = GameObject(starting_comps=[Sprite("square", "yellow"), Entity(), Player()])
 
 def refresh_screen():
     sorted_render_objects = render_objects
@@ -730,7 +846,6 @@ def game_loop():
     refresh_screen()
     input_manager.late_update()
     screen.ontimer(game_loop, int(1000 / fps))
-
 
 game_loop()
 
