@@ -9,7 +9,6 @@ def wait_for_seconds(t):
     for i in range(0, int(t * 16)):
         yield
 
-
 def start_coroutine(coroutine):
     coroutines.append(coroutine)
 
@@ -217,14 +216,14 @@ class RenderObject(Component):
                                stretch_wid=self.game_object.transform.scale.y)
             self.pen.setheading(self.game_object.transform.rotation)
             self.pen.goto(self.game_object.transform.position.x, self.game_object.transform.position.y)
-            self.pseudostamp()
+            self.stamp_action()
 
     def on_delete(self):
         super().on_delete()
         self.pen.clear()
         render_objects.remove(self)
 
-    def pseudostamp(self):
+    def stamp_action(self):
         pass
 
 
@@ -234,8 +233,8 @@ class Sprite(RenderObject):
         self.shape = shape
         self.color = color
 
-    def pseudostamp(self):
-        super().pseudostamp()
+    def stamp_action(self):
+        super().stamp_action()
         self.pen.shape(self.shape)
         self.pen.color(self.color)
         self.pen.stamp()
@@ -249,8 +248,8 @@ class Text(RenderObject):
         self.font_size = font_size
         super().__init__()
 
-    def pseudostamp(self):
-        super().pseudostamp()
+    def stamp_action(self):
+        super().stamp_action()
         self.pen.color(self.color)
         self.pen.write(self.text, font=(self.font, self.font_size), align="center")
 
@@ -497,6 +496,7 @@ class Collection:
         self.vertex_sets.append(None)
 
         self.air_tile_types = [0, 36, 35]
+        self.directions = [Vector2(0, 1), Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]
 
     def mirror(self, vertex_set, vert=True, hor=False):
         half = []
@@ -528,13 +528,22 @@ class Collection:
 collection = Collection()
 
 class Tile:
-    def __init__(self, grid_position, world_position=None, tile_type=0):
+    def __init__(self, grid_position, world_position=None, tile_type=0, tile_size=None):
         self.grid_position = grid_position
         self.world_position = world_position
         self.tile_type = tile_type
+        self.tile_size = tile_size
         self.f = 0
         self.g = 0
         self.q = 0
+    
+    def is_in_bounds(self, pos, collider_scale):
+        within_x = pos.x > self.world_position.x - self.tile_size.x/2 - collider_scale and pos.x < self.world_position.x + self.tile_size.x/2 + collider_scale
+        within_y = pos.y > self.world_position.y - self.tile_size.y/2 - collider_scale and pos.y < self.world_position.y + self.tile_size.y/2 + collider_scale
+        if within_x and within_y:
+            return True
+        else:
+            return False
 
 
 class Grid(Component):
@@ -642,13 +651,13 @@ class Grid(Component):
         self.render_grid()
 
     def erase_square(self, screen_pos):
-        closest_tile = self.get_closest_tile_by_screen_position(screen_pos)
+        closest_tile = self.get_closest_tile_by_world_position(screen_pos)
         if closest_tile is not None:
             closest_tile.tile_type = 0
             self.render_grid()
 
     def paint_square(self, screen_pos):
-        closest_tile = self.get_closest_tile_by_screen_position(screen_pos)
+        closest_tile = self.get_closest_tile_by_world_position(screen_pos)
         if closest_tile is not None:
             closest_tile.tile_type = self.tile_type
             self.render_grid()
@@ -662,7 +671,7 @@ class Grid(Component):
                     tiles.append(tile)
         return tiles
 
-    def get_closest_tile_by_screen_position(self, screen_pos):
+    def get_closest_tile_by_world_position(self, world_pos):
         if self.matrix[0][0].world_position is None:
             self.calculate_coordinates()
         closest_tile = None
@@ -672,8 +681,7 @@ class Grid(Component):
                 if closest_tile is None:
                     closest_tile = tile
                 else:
-                    pos = Vector2(screen_pos.x, screen_pos.y)
-                    if (tile.world_position - pos).magnitude() < (closest_tile.world_position - pos).magnitude():
+                    if (tile.world_position - world_pos).magnitude() < (closest_tile.world_position - world_pos).magnitude():
                         closest_tile = tile
         return closest_tile
 
@@ -694,7 +702,7 @@ class Grid(Component):
             self.matrix.append([])
             for y in range(0, self.grid_dimensions.y):
                 grid_pos = Vector2(x, y)
-                new_tile = Tile(grid_pos)
+                new_tile = Tile(grid_pos, tile_size=self.tile_size)
                 self.matrix[x].append(new_tile)
         self.center_grid()
         self.calculate_coordinates()
@@ -718,8 +726,7 @@ class Grid(Component):
 
         while len(open_list) > 0:
             current_tile = open_list.pop()
-            directions = [Vector2(0, 1), Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]
-            for direction in directions:
+            for direction in collection.directions:
                 new_x = current_tile.grid_position.x + direction.x
                 new_y = current_tile.grid_position.y + direction.y
                 if self.debug_mode:
@@ -728,7 +735,7 @@ class Grid(Component):
                     self.debug_pen.shapesize(0.75)
                     self.debug_pen.goto(stamp_pos.x, stamp_pos.y)
                     self.debug_pen.stamp()
-                if not (self.grid_dimensions.x >= new_x >= 0 or self.grid_dimensions.y >= new_y >= 0):
+                if not (0 <= new_x < self.grid_dimensions.x and 0 <= new_y < self.grid_dimensions.y):
                     continue
                 next_tile = self.matrix[new_x][new_y]
                 if next_tile is not None and next_tile.tile_type in collection.air_tile_types and next_tile not in closed_list:
@@ -739,7 +746,7 @@ class Grid(Component):
                         return path
                     else:
                         next_tile.g = current_tile.g + 1
-                        next_tile.h = abs(current_tile.grid_position.x - end_tile.grid_position.x) + abs(current_tile.grid_position.y - end_tile.grid_position.y)
+                        next_tile.h = abs(next_tile.grid_position.x - end_tile.grid_position.x) + abs(next_tile.grid_position.y - end_tile.grid_position.y)
                         next_tile.f = next_tile.g + next_tile.h
                     if next_tile not in open_list or next_tile.f < current_tile.f:
                         open_list.append(next_tile)
@@ -818,7 +825,7 @@ class Grid(Component):
                     if char == "":
                         continue
                     new_grid_pos = Vector2(x, y)
-                    self.matrix[x][y] = Tile(new_grid_pos, self.grid_to_world_position(new_grid_pos), int(char))
+                    self.matrix[x][y] = Tile(new_grid_pos, self.grid_to_world_position(new_grid_pos), int(char), self.tile_size)
             file.close()
         self.render_grid()
 
@@ -826,21 +833,22 @@ class Grid(Component):
 class Entity(Component):
     def __init__(self):
         self.move_input = Vector2(0, 0)
-        self.true_move_input = Vector2(1, 0)
         self.move_speed = 2
+        self.collider_scale = 5
+        self.debug_pen = turtle.Turtle()
+        self.debug_pen.penup()
+        self.debug_pen.shape("classic")
 
     def start(self):
         pass
 
     def update(self):
-        closest_tile = grid.get_closest_tile_by_screen_position(self.game_object.transform.position)
-        if closest_tile is not None:
-            next_grid_pos = closest_tile.grid_position + self.move_input
-            tile = grid.matrix[next_grid_pos.x][next_grid_pos.y]
-            if tile.tile_type not in collection.air_tile_types:
-                return
-        self.true_move_input = self.move_input
-        self.game_object.transform.position += self.true_move_input * self.move_speed
+        self.debug_pen.clear()
+        movement = self.game_object.transform.position + self.move_input * self.move_speed
+        tile = grid.get_closest_tile_by_world_position(movement)
+        if tile.tile_type not in collection.air_tile_types and tile.is_in_bounds(movement, self.collider_scale):
+            return
+        self.game_object.transform.position = movement
 
 
 class Player(Component):
@@ -877,34 +885,38 @@ class Ghost(Component):
             self.game_object.transform.position = spawn_tiles[0].world_position
 
     def calculate_path_to_player(self):
-        closest_tile = grid.get_closest_tile_by_screen_position(self.game_object.transform.position)
-        player_closest_tile = grid.get_closest_tile_by_screen_position(pacman.game_object.transform.position)
+        closest_tile = grid.get_closest_tile_by_world_position(self.game_object.transform.position)
+        player_closest_tile = grid.get_closest_tile_by_world_position(pacman.game_object.transform.position)
         if closest_tile is not None:
             self.path_points = grid.get_path(closest_tile, player_closest_tile)
-            self.path_index = 0
+            
 
     def update(self):
         self.calculate_path_to_player()
         if self.path_points is None or len(self.path_points) == 0:
             return
 
-        for i in range(0, len(self.path_points)):
-            path_point = self.path_points[i]
+        path_point = self.path_points[self.path_index]
+        if path_point.world_position.x > self.game_object.transform.position.x:
+            self.entity.move_input.x = 1
+        elif path_point.world_position.x < self.game_object.transform.position.x:
+            self.entity.move_input.x = -1
+        else:
+            self.entity.move_input.x = 0
 
-            if path_point.world_position.x > self.game_object.transform.position.x:
-                self.entity.move_input.x = 1
-            elif path_point.world_position.x < self.game_object.transform.position.x:
-                self.entity.move_input.x = -1
+        if path_point.world_position.y > self.game_object.transform.position.y:
+            self.entity.move_input.y = 1
+        elif path_point.world_position.y < self.game_object.transform.position.y:
+            self.entity.move_input.y = -1
+        else:
+            self.entity.move_input.y = 0
+        
+        if (self.game_object.transform.position - path_point.world_position).magnitude() < 0.5:
+            if self.path_index + 1 <= len(self.path_points): 
+                self.path_index += 1
             else:
-                self.entity.move_input.x = 0
-
-            if path_point.world_position.y > self.game_object.transform.position.y:
-                self.entity.move_input.y = 1
-            elif path_point.world_position.y < self.game_object.transform.position.y:
-                self.entity.move_input.y = -1
-            else:
-                self.entity.move_input.y = 0
-
+                self.path_points.clear()
+        
 
 render_objects = []
 game_objects = []
