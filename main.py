@@ -712,7 +712,7 @@ class Grid(Component):
     def get_path(self, start_tile, end_tile):
         self.debug_pen.clear()
         open_list = [start_tile]
-        closed_set = set()
+        closed_list = []
         came_from = {}  # Track parent for path reconstruction
         
         # Initialize start tile
@@ -748,7 +748,7 @@ class Grid(Component):
                 return path
             
             open_list.remove(current_tile)
-            closed_set.add(current_tile)
+            closed_list.append(current_tile)
             
             for direction in collection.directions:
                 new_x = current_tile.grid_position.x + direction.x
@@ -764,7 +764,7 @@ class Grid(Component):
                 if not (0 <= new_x < self.grid_dimensions.x and 0 <= new_y < self.grid_dimensions.y):
                     continue
                 next_tile = self.matrix[new_x][new_y]
-                if next_tile is not None and next_tile.tile_type in collection.air_tile_types and next_tile not in closed_set:
+                if next_tile is not None and next_tile.tile_type in collection.air_tile_types and next_tile not in closed_list:
                     tentative_g = current_tile.g + 1
                     if next_tile not in open_list or tentative_g < next_tile.g:
                         came_from[next_tile] = current_tile
