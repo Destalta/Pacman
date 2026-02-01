@@ -713,9 +713,8 @@ class Grid(Component):
         self.debug_pen.clear()
         open_list = [start_tile]
         closed_list = []
-        came_from = {}  # Track parent for path reconstruction
+        parent_child_pairs = {}
         
-        # Initialize start tile
         start_tile.g = 0
         start_tile.h = abs(start_tile.grid_position.x - end_tile.grid_position.x) + abs(start_tile.grid_position.y - end_tile.grid_position.y)
         start_tile.f = start_tile.h
@@ -732,18 +731,16 @@ class Grid(Component):
             self.debug_pen.stamp()
 
         while len(open_list) > 0:
-            # Find tile with lowest f-score in open list
             current_tile = open_list[0]
             for tile in open_list:
                 if tile.f < current_tile.f:
                     current_tile = tile
             
-            # Found the destination - reconstruct path
             if current_tile == end_tile:
                 path = []
-                while current_tile in came_from:
+                while current_tile in parent_child_pairs:
                     path.append(current_tile)
-                    current_tile = came_from[current_tile]
+                    current_tile = parent_child_pairs[current_tile]
                 path.reverse()
                 return path
             
@@ -765,16 +762,16 @@ class Grid(Component):
                     continue
                 next_tile = self.matrix[new_x][new_y]
                 if next_tile is not None and next_tile.tile_type in collection.air_tile_types and next_tile not in closed_list:
-                    tentative_g = current_tile.g + 1
-                    if next_tile not in open_list or tentative_g < next_tile.g:
-                        came_from[next_tile] = current_tile
-                        next_tile.g = tentative_g
+                    new_g = current_tile.g + 1
+                    if next_tile not in open_list or new_g < next_tile.g:
+                        parent_child_pairs[next_tile] = current_tile
+                        next_tile.g = new_g
                         next_tile.h = abs(next_tile.grid_position.x - end_tile.grid_position.x) + abs(next_tile.grid_position.y - end_tile.grid_position.y)
                         next_tile.f = next_tile.g + next_tile.h
                         if next_tile not in open_list:
                             open_list.append(next_tile)
                 
-        return []  # No path found
+        return []
 
     def center_grid(self):
         self.game_object.transform.position.x = -(self.grid_dimensions.x * self.tile_size.x) / 2
@@ -900,7 +897,6 @@ class Ghost(Component):
 
     def start(self):
         self.entity = self.game_object.get_component(Entity)
-        self.entity.move_speed = 1  # Slower than player
         spawn_tiles = grid.find_tiles_by_type(35)
         if len(spawn_tiles) > 0:
             self.game_object.transform.position = spawn_tiles[0].world_position
