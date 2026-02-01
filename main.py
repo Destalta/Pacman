@@ -712,8 +712,14 @@ class Grid(Component):
     def get_path(self, start_tile, end_tile):
         self.debug_pen.clear()
         open_list = [start_tile]
-        closed_list = []
-        path = []
+        closed_set = set()
+        came_from = {}  # Track parent for path reconstruction
+        
+        # Initialize start tile
+        start_tile.g = 0
+        start_tile.h = abs(start_tile.grid_position.x - end_tile.grid_position.x) + abs(start_tile.grid_position.y - end_tile.grid_position.y)
+        start_tile.f = start_tile.h
+        
         if self.debug_mode:
             self.debug_pen.color("darkred")
             self.debug_pen.shapesize(1)
@@ -726,32 +732,49 @@ class Grid(Component):
             self.debug_pen.stamp()
 
         while len(open_list) > 0:
-            current_tile = open_list.pop()
+            # Find tile with lowest f-score in open list
+            current_tile = open_list[0]
+            for tile in open_list:
+                if tile.f < current_tile.f:
+                    current_tile = tile
+            
+            # Found the destination - reconstruct path
+            if current_tile == end_tile:
+                path = []
+                while current_tile in came_from:
+                    path.append(current_tile)
+                    current_tile = came_from[current_tile]
+                path.reverse()
+                return path
+            
+            open_list.remove(current_tile)
+            closed_set.add(current_tile)
+            
             for direction in collection.directions:
                 new_x = current_tile.grid_position.x + direction.x
                 new_y = current_tile.grid_position.y + direction.y
+                
                 if self.debug_mode:
                     stamp_pos = self.grid_to_world_position(Vector2(new_x, new_y))
                     self.debug_pen.color("green")
                     self.debug_pen.shapesize(0.75)
                     self.debug_pen.goto(stamp_pos.x, stamp_pos.y)
                     self.debug_pen.stamp()
+                
                 if not (0 <= new_x < self.grid_dimensions.x and 0 <= new_y < self.grid_dimensions.y):
                     continue
                 next_tile = self.matrix[new_x][new_y]
-                if next_tile is not None and next_tile.tile_type in collection.air_tile_types and next_tile not in closed_list:
-                    path.append(next_tile)
-                    closed_list.append(next_tile)
-                    if next_tile == end_tile:
-                        #print("Found destination")
-                        return path
-                    else:
-                        next_tile.g = current_tile.g + 1
+                if next_tile is not None and next_tile.tile_type in collection.air_tile_types and next_tile not in closed_set:
+                    tentative_g = current_tile.g + 1
+                    if next_tile not in open_list or tentative_g < next_tile.g:
+                        came_from[next_tile] = current_tile
+                        next_tile.g = tentative_g
                         next_tile.h = abs(next_tile.grid_position.x - end_tile.grid_position.x) + abs(next_tile.grid_position.y - end_tile.grid_position.y)
                         next_tile.f = next_tile.g + next_tile.h
-                    if next_tile not in open_list or next_tile.f < current_tile.f:
-                        open_list.append(next_tile)
-        return path
+                        if next_tile not in open_list:
+                            open_list.append(next_tile)
+                
+        return []  # No path found
 
     def center_grid(self):
         self.game_object.transform.position.x = -(self.grid_dimensions.x * self.tile_size.x) / 2
@@ -877,6 +900,7 @@ class Ghost(Component):
 
     def start(self):
         self.entity = self.game_object.get_component(Entity)
+        self.entity.move_speed = 1  # Slower than player
         spawn_tiles = grid.find_tiles_by_type(35)
         if len(spawn_tiles) > 0:
             self.game_object.transform.position = spawn_tiles[0].world_position
@@ -938,7 +962,7 @@ grid.import_grid_from_text_file("")
 
 pacman = GameObject(starting_comps=[Sprite("square", "yellow"), Entity(), Player()])
 
-#blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost()])
+blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost()])
 
 
 def refresh_screen():
