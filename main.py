@@ -538,8 +538,9 @@ class Tile:
         self.q = 0
     
     def is_in_bounds(self, pos, collider_scale):
-        within_x = pos.x > self.world_position.x - self.tile_size.x/2 - collider_scale and pos.x < self.world_position.x + self.tile_size.x/2 + collider_scale
-        within_y = pos.y > self.world_position.y - self.tile_size.y/2 - collider_scale and pos.y < self.world_position.y + self.tile_size.y/2 + collider_scale
+        within_x = pos.x + collider_scale > self.world_position.x - self.tile_size.x/2 and pos.x - collider_scale < self.world_position.x + self.tile_size.x/2
+        within_y = pos.y + collider_scale > self.world_position.y - self.tile_size.y/2 and pos.y - collider_scale < self.world_position.y + self.tile_size.y/2
+        print(within_x, within_y)
         if within_x and within_y:
             return True
         else:
@@ -834,16 +835,12 @@ class Entity(Component):
     def __init__(self):
         self.move_input = Vector2(0, 0)
         self.move_speed = 2
-        self.collider_scale = 5
-        self.debug_pen = turtle.Turtle()
-        self.debug_pen.penup()
-        self.debug_pen.shape("classic")
+        self.collider_scale = 999
 
     def start(self):
         pass
 
     def update(self):
-        self.debug_pen.clear()
         movement = self.game_object.transform.position + self.move_input * self.move_speed
         tile = grid.get_closest_tile_by_world_position(movement)
         if tile.tile_type not in collection.air_tile_types and tile.is_in_bounds(movement, self.collider_scale):
@@ -941,7 +938,7 @@ grid.import_grid_from_text_file("")
 
 pacman = GameObject(starting_comps=[Sprite("square", "yellow"), Entity(), Player()])
 
-blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost()])
+#blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost()])
 
 
 def refresh_screen():
