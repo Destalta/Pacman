@@ -919,18 +919,15 @@ class Ghost(Component):
 
         path_point = self.path_points[self.path_index]
         if path_point.world_position.x > self.game_object.transform.position.x:
-            self.entity.move_input.x = 1
+            self.entity.move_input = Vector2(1, 0)
         elif path_point.world_position.x < self.game_object.transform.position.x:
-            self.entity.move_input.x = -1
-        else:
-            self.entity.move_input.x = 0
-
-        if path_point.world_position.y > self.game_object.transform.position.y:
-            self.entity.move_input.y = 1
+            self.entity.move_input = Vector2(-1, 0)
+        elif path_point.world_position.y > self.game_object.transform.position.y:
+            self.entity.move_input = Vector2(0, 1)
         elif path_point.world_position.y < self.game_object.transform.position.y:
-            self.entity.move_input.y = -1
+            self.entity.move_input = Vector2(0, -1)
         else:
-            self.entity.move_input.y = 0
+            self.entity.move_input = Vector2(0, 0)
         
         if (self.game_object.transform.position - path_point.world_position).magnitude() < 0.5:
             if self.path_index + 1 <= len(self.path_points): 
