@@ -254,45 +254,6 @@ class Text(RenderObject):
         self.pen.write(self.text, font=(self.font, self.font_size), align="center")
 
 
-class EdgeDelete(Component):
-    def __init__(self):
-        super().__init__()
-
-    def update(self):
-        super().update()
-        transform = self.game_object.transform
-        bool_x = self.detect(transform.position.x, screen_dimensions.x / 2, -transform.scale.x * 10)
-        bool_y = self.detect(transform.position.y, screen_dimensions.y / 2, -transform.scale.y * 10)
-        if bool_x or bool_y:
-            self.game_object.destroy()
-
-    def detect(self, a, b, extra_size=0):
-        if a >= (b - extra_size):
-            return True
-        elif a <= (-b + extra_size):
-            return True
-        return False
-
-
-class EdgeConstrict(Component):
-    def __init__(self):
-        super().__init__()
-
-    def update(self):
-        super().update()
-        transform = self.game_object.transform
-        transform.position.x = self.constrict(transform.position.x, screen_dimensions.x / 2, transform.scale.x * 10)
-        transform.position.y = self.constrict(transform.position.y, (screen_dimensions.y + 10) / 2,
-                                              transform.scale.y * 20)
-
-    def constrict(self, a, b, extra_size=0):
-        if a >= (b - extra_size):
-            a = b - extra_size
-        elif a <= (-b + extra_size):
-            a = -b + extra_size
-        return a
-
-
 def angle_to_vector(angle):
     radian = math.radians(angle)
     return Vector2(math.cos(radian), math.sin(radian))
@@ -495,7 +456,7 @@ class Collection:
         self.vertex_sets.append(self.rotate(wad, 90))
         self.vertex_sets.append(None)
 
-        self.air_tile_types = [0, 36, 35]
+        self.air_tile_types = [0, 36, 35, 34, 33]
         self.directions = [Vector2(0, 1), Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]
 
     def mirror(self, vertex_set, vert=True, hor=False):
@@ -540,7 +501,6 @@ class Tile:
     def is_in_bounds(self, pos, collider_scale):
         within_x = pos.x + collider_scale > self.world_position.x - self.tile_size.x/2 and pos.x - collider_scale < self.world_position.x + self.tile_size.x/2
         within_y = pos.y + collider_scale > self.world_position.y - self.tile_size.y/2 and pos.y - collider_scale < self.world_position.y + self.tile_size.y/2
-        print(within_x, within_y)
         if within_x and within_y:
             return True
         else:
@@ -559,7 +519,7 @@ class Grid(Component):
         self.pen.pencolor("black")
         self.matrix = [[]]
         self.tile_type = 1
-        self.editor_mode = True
+        self.editor_mode = False
         self.past_matrices = []
         self.past_matrix = None
         self.undo_index = 0
@@ -568,12 +528,16 @@ class Grid(Component):
         self.painting = False
         self.erasing = False
 
-        self.debug_mode = True
+        self.debug_mode = False
         self.debug_pen = turtle.Turtle()
         self.debug_pen.penup()
         self.debug_pen.shape("circle")
 
     def update(self):
+        if input_manager.get_key("Control_L") and input_manager.get_key_down("d"):
+            self.editor_mode = not self.editor_mode
+            self.render_grid()
+
         if not self.editor_mode:
             return
 
@@ -599,11 +563,6 @@ class Grid(Component):
                 if input_manager.get_key(char):
                     self.tile_type = i + 1
 
-        if input_manager.get_key("Control_L") and input_manager.get_key_down("d"):
-            self.debug_mode = not self.debug_mode
-            self.editor_mode = not self.editor_mode
-            self.render_grid()
-
         if input_manager.mouse_button_left_down:
             if not self.painting:
                 self.painting = True
@@ -620,15 +579,6 @@ class Grid(Component):
             if self.erasing:
                 self.erasing = False
                 self.record_matrix()
-
-        # if input_manager.get_key_down("Left"):
-        #     self.shift_grid(Vector2(-1, 0))
-        # elif input_manager.get_key_down("Right"):
-        #     self.shift_grid(Vector2(1, 0))
-        # elif input_manager.get_key_down("Up"):
-        #     self.shift_grid(Vector2(-1, 1))
-        # elif input_manager.get_key_down("Down"):
-        #     self.shift_grid(Vector2(0, -1))
 
     def undo(self):
         if len(self.past_matrices) > 1:
@@ -809,7 +759,7 @@ class Grid(Component):
 
                 self.pen.penup()
                 self.pen.goto(tile.world_position.x, tile.world_position.y)
-                if self.debug_mode:
+                if self.editor_mode:
                     self.pen.pencolor("white")
                     self.pen.write(str(tile.tile_type), align="center")
 
@@ -850,6 +800,7 @@ class Grid(Component):
             file.close()
         self.render_grid()
 
+game_started = False
 
 class Entity(Component):
     def __init__(self):
@@ -861,6 +812,9 @@ class Entity(Component):
         pass
 
     def update(self):
+        if not game_started:
+            return
+
         movement = self.game_object.transform.position + self.move_input * self.move_speed
         tile = grid.get_closest_tile_by_world_position(movement)
         if tile.tile_type not in collection.air_tile_types and tile.is_in_bounds(movement, self.collider_scale):
@@ -888,15 +842,22 @@ class Player(Component):
         if input_manager.get_key_down("Left") or input_manager.get_key_down("a"):
             self.entity.move_input = Vector2(-1, 0)
 
+def end_game():
+    global game_started
+    game_started = False
 
 class Ghost(Component):
-    def __init__(self):
+    def __init__(self, offset=Vector2(), speed=2, engage_distance=0):
         self.entity = None
         self.path_points = []
         self.path_index = 0
+        self.offset = offset
+        self.speed = speed
+        self.engage_distance = engage_distance
 
     def start(self):
         self.entity = self.game_object.get_component(Entity)
+        self.entity.move_speed = self.speed
         spawn_tiles = grid.find_tiles_by_type(35)
         if len(spawn_tiles) > 0:
             self.game_object.transform.position = spawn_tiles[0].world_position
@@ -904,14 +865,24 @@ class Ghost(Component):
     def calculate_path_to_player(self):
         closest_tile = grid.get_closest_tile_by_world_position(self.game_object.transform.position)
         player_closest_tile = grid.get_closest_tile_by_world_position(pacman.game_object.transform.position)
+        close = (self.game_object.transform.position - pacman.game_object.transform.position).magnitude() < self.engage_distance
+        if not close:
+            try:
+                player_closest_tile = grid.matrix[player_closest_tile.grid_position.x + self.offset.x][player_closest_tile.grid_position.y + self.offset.y]
+            except:
+                pass
+
         if closest_tile is not None:
             self.path_points = grid.get_path(closest_tile, player_closest_tile)
-            
+            self.path_index = 0
 
     def update(self):
         self.calculate_path_to_player()
         if self.path_points is None or len(self.path_points) == 0:
             return
+        
+        if (self.game_object.transform.position - pacman.game_object.transform.position).magnitude() < 20:
+            end_game()
 
         path_point = self.path_points[self.path_index]
         if path_point.world_position.x > self.game_object.transform.position.x:
@@ -926,7 +897,7 @@ class Ghost(Component):
             self.entity.move_input = Vector2(0, 0)
         
         if (self.game_object.transform.position - path_point.world_position).magnitude() < 0.5:
-            if self.path_index + 1 <= len(self.path_points): 
+            if self.path_index + 1 < len(self.path_points):
                 self.path_index += 1
             else:
                 self.path_points.clear()
@@ -953,10 +924,23 @@ grid = GameObject().add_component(Grid())
 grid.create(Vector2(31, 21))
 grid.import_grid_from_text_file("")
 
+def game_start_routine():
+    global game_started
+    txt = GameObject().add_component(Text(color="white", font_size="96"))
+    for i in range(0, 3):
+        txt.text = str(3-i)
+        yield wait_for_seconds(1)
+    txt.game_object.destroy()
+    game_started = True
+
+start_coroutine(game_start_routine())
+
 pacman = GameObject(starting_comps=[Sprite("square", "yellow"), Entity(), Player()])
 
-blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost()])
-
+# blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost(speed=2)])
+# pinky = GameObject(starting_comps=[Sprite("square", "pink"), Entity(), Ghost(offset=Vector2(2, 0), speed=1.5)])
+# clyde = GameObject(starting_comps=[Sprite("square", "orange"), Entity(), Ghost(offset=Vector2(-2, 0), speed=1)])
+# seth = GameObject(starting_comps=[Sprite("square", "cyan"), Entity(), Ghost(offset=Vector2(0, -5), speed=1.5, engage_distance=100)])
 
 def refresh_screen():
     sorted_render_objects = render_objects
