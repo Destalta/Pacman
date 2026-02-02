@@ -2,8 +2,17 @@ import math
 import turtle
 import copy
 
-fps = 60
+# Escape to pause
+# Ctrl + D to enter edit mode
+# Ctrl + Z to undo
+# Ctrl + S to save a level. 
+# Ctrl + I to import a level
+# Ctrl + V to visualize pathfinding
 
+# If it's too laggy, change max_dots
+max_dots = -1
+
+fps = 60
 
 def wait_for_seconds(t):
     for i in range(0, int(t * 16)):
@@ -13,10 +22,8 @@ def wait_for_input():
     while len(input_manager.keys_down_this_frame) == 0:
         yield
 
-
 def start_coroutine(coroutine):
     coroutines.append(coroutine)
-
 
 def stop_coroutine(coroutine):
     coroutines.remove(coroutine)
@@ -667,7 +674,6 @@ class Grid(Component):
                 self.matrix[x].append(new_tile)
         self.center_grid()
         self.calculate_coordinates()
-        self.record_matrix()
 
     def get_path(self, start_tile, end_tile):
         self.debug_pen.clear()
@@ -849,11 +855,13 @@ class Player(Component):
         self.entity = None
         self.mouth = None
         self.mouth_pivot = None
+        self.origin_mouth_y_scale = 0
 
     def start(self):
         self.mouth_pivot = GameObject()
         self.mouth_pivot.transform.parent = self.game_object.transform
         self.mouth = GameObject(scale=Vector2(1, 1) * 0.6, starting_comps=[Sprite("triangle", "black")])
+        self.origin_mouth_y_scale = self.mouth.transform.scale.y
         self.mouth.transform.rotation = 180
         self.mouth.transform.parent = self.mouth_pivot.transform
         self.mouth.transform.local_position = Vector2(8, 0)
@@ -864,6 +872,8 @@ class Player(Component):
         spawn_tiles = grid.find_tiles_by_type(36)
         if len(spawn_tiles) > 0:
             self.game_object.transform.position = spawn_tiles[0].world_position
+        
+        start_coroutine(self.mouth_routine())
 
     def update(self):
         global game_started
@@ -875,16 +885,25 @@ class Player(Component):
 
         if input_manager.get_key_down("Up") or input_manager.get_key_down("w"):
             self.entity.move_input = Vector2(0, 1)
-            Lerp(self.mouth_pivot.transform, "local_rotation", 90, 0.15)
+            Lerp(self.mouth_pivot.transform, "local_rotation", 90, 0.075)
         if input_manager.get_key_down("Right") or input_manager.get_key_down("d"):
             self.entity.move_input = Vector2(1, 0)
-            Lerp(self.mouth_pivot.transform, "local_rotation", 0, 0.15)
+            Lerp(self.mouth_pivot.transform, "local_rotation", 0, 0.075)
         if input_manager.get_key_down("Down") or input_manager.get_key_down("s"):
             self.entity.move_input = Vector2(0, -1)
-            Lerp(self.mouth_pivot.transform, "local_rotation", -90, 0.15)
+            Lerp(self.mouth_pivot.transform, "local_rotation", -90, 0.075)
         if input_manager.get_key_down("Left") or input_manager.get_key_down("a"):
             self.entity.move_input = Vector2(-1, 0)
-            Lerp(self.mouth_pivot.transform, "local_rotation", 180, 0.15)
+            Lerp(self.mouth_pivot.transform, "local_rotation", 180, 0.075)
+    
+    def mouth_routine(self):
+        while not game_started:
+            yield
+        while game_started:
+            Lerp(self.mouth.transform, "local_scale", Vector2(self.mouth.transform.local_scale.x, 0), 0.05)
+            yield from wait_for_seconds(0.35)
+            Lerp(self.mouth.transform, "local_scale", Vector2(self.mouth.transform.local_scale.x, self.origin_mouth_y_scale), 0.05)
+            yield from wait_for_seconds(0.35)
 
 
 def end_game(win=False):
@@ -1026,7 +1045,6 @@ class DotManager(Component):
         self.dot_pen.speed(0)
         self.dot_pen.shape("circle")
         self.dot_pen.shapesize(0.5)
-        self.max_dots = -1
 
     def update(self):
         for dot_pos in self.dot_poses:
@@ -1037,7 +1055,7 @@ class DotManager(Component):
                 self.render_dots()
 
     def add_pos(self, pos):
-        if self.max_dots != -1 and len(self.dot_poses) >= self.max_dots:
+        if max_dots != -1 and len(self.dot_poses) >= max_dots:
             return
         self.dot_poses.append(pos)
 
