@@ -9,6 +9,11 @@ def wait_for_seconds(t):
     for i in range(0, int(t * 16)):
         yield
 
+def wait_for_input():
+    while len(input_manager.keys_down_this_frame) == 0:
+        yield
+
+
 def start_coroutine(coroutine):
     coroutines.append(coroutine)
 
@@ -99,20 +104,12 @@ class Transform(Component):
 
     def update(self):
         if self.parent is not None:
-            self.position = self.parent.position + self.local_position
+            rotated_pos = Vector2(self.local_position.x, self.local_position.y)
+            rotated_pos.rotate(self.parent.rotation)
+            self.position = self.parent.position + rotated_pos
             self.rotation = self.parent.rotation + self.local_rotation
             if not self.ignore_parent_scale:
                 self.scale = self.parent.scale * self.local_scale
-            self.rotation = self.parent.rotation + self.local_rotation
-
-    def tween_position(self, new_position, speed):
-        return Lerp(self, "position", new_position, speed)
-
-    def tween_rotation(self, new_rotation, speed):
-        return Lerp(self, "rotation", new_rotation, speed)
-
-    def tween_scale(self, new_scale, speed):
-        return Lerp(self, "scale", new_scale, speed)
 
     @property
     def parent(self):
@@ -228,10 +225,11 @@ class RenderObject(Component):
 
 
 class Sprite(RenderObject):
-    def __init__(self, shape="square", color="white"):
+    def __init__(self, shape="square", color="white", sort_order=0):
         super().__init__()
         self.shape = shape
         self.color = color
+        self.sort_order = sort_order
 
     def stamp_action(self):
         super().stamp_action()
@@ -333,7 +331,10 @@ class Lerp:
         if self.lerping:
             self.timer += (fps / 1000) / self.speed / 4
             new_val = getattr(self.obj, self.attribute)
-            new_val += (self.target - new_val) * self.timer
+            diff = self.target - new_val
+            if "rotation" in self.attribute:
+                diff = (diff + 180) % 360 - 180
+            new_val += diff * self.timer
             setattr(self.obj, self.attribute, new_val)
             if self.timer >= 1:
                 self.stop()
@@ -343,7 +344,7 @@ class Input:
     def __init__(self):
         screen.listen()
         self.keys = ["Up", "Down", "Left", "Right",
-                     "Control_L", "Shift_L"]
+                     "Control_L", "Shift_L", "Escape"]
 
         self.keys_down = set()
         self.keys_down_this_frame = set()
@@ -357,6 +358,8 @@ class Input:
         screen.getcanvas().bind('<ButtonRelease-1>', self.on_mouse_button_left_up)
         screen.getcanvas().bind('<ButtonPress-3>', self.on_mouse_button_right_down)
         screen.getcanvas().bind('<ButtonRelease-3>', self.on_mouse_button_right_up)
+        screen.getcanvas().bind('<ButtonPress-2>', self.on_mouse_button_right_down)
+        screen.getcanvas().bind('<ButtonRelease-2>', self.on_mouse_button_right_up)
 
         self.keys += collection.keyboard_layout
         self.keys += collection.numbers
@@ -456,7 +459,7 @@ class Collection:
         self.vertex_sets.append(self.rotate(wad, 90))
         self.vertex_sets.append(None)
 
-        self.air_tile_types = [0, 36, 35, 34, 33]
+        self.air_tile_types = [0, 36, 35, 34, 33, 32]
         self.directions = [Vector2(0, 1), Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]
 
     def mirror(self, vertex_set, vert=True, hor=False):
@@ -486,7 +489,9 @@ class Collection:
                 new_vertex_set.append(vertex)
         return new_vertex_set
 
+
 collection = Collection()
+
 
 class Tile:
     def __init__(self, grid_position, world_position=None, tile_type=0, tile_size=None):
@@ -497,10 +502,10 @@ class Tile:
         self.f = 0
         self.g = 0
         self.q = 0
-    
+
     def is_in_bounds(self, pos, collider_scale):
-        within_x = pos.x + collider_scale > self.world_position.x - self.tile_size.x/2 and pos.x - collider_scale < self.world_position.x + self.tile_size.x/2
-        within_y = pos.y + collider_scale > self.world_position.y - self.tile_size.y/2 and pos.y - collider_scale < self.world_position.y + self.tile_size.y/2
+        within_x = pos.x + collider_scale > self.world_position.x - self.tile_size.x / 2 and pos.x - collider_scale < self.world_position.x + self.tile_size.x / 2
+        within_y = pos.y + collider_scale > self.world_position.y - self.tile_size.y / 2 and pos.y - collider_scale < self.world_position.y + self.tile_size.y / 2
         if within_x and within_y:
             return True
         else:
@@ -536,6 +541,10 @@ class Grid(Component):
     def update(self):
         if input_manager.get_key("Control_L") and input_manager.get_key_down("d"):
             self.editor_mode = not self.editor_mode
+            self.render_grid()
+
+        if input_manager.get_key("Control_L") and input_manager.get_key_down("v"):
+            self.debug_mode = not self.debug_mode
             self.render_grid()
 
         if not self.editor_mode:
@@ -632,7 +641,8 @@ class Grid(Component):
                 if closest_tile is None:
                     closest_tile = tile
                 else:
-                    if (tile.world_position - world_pos).magnitude() < (closest_tile.world_position - world_pos).magnitude():
+                    if (tile.world_position - world_pos).magnitude() < (
+                            closest_tile.world_position - world_pos).magnitude():
                         closest_tile = tile
         return closest_tile
 
@@ -664,11 +674,12 @@ class Grid(Component):
         open_list = [start_tile]
         closed_list = []
         parent_child_pairs = {}
-        
+
         start_tile.g = 0
-        start_tile.h = abs(start_tile.grid_position.x - end_tile.grid_position.x) + abs(start_tile.grid_position.y - end_tile.grid_position.y)
+        start_tile.h = abs(start_tile.grid_position.x - end_tile.grid_position.x) + abs(
+            start_tile.grid_position.y - end_tile.grid_position.y)
         start_tile.f = start_tile.h
-        
+
         if self.debug_mode:
             self.debug_pen.color("darkred")
             self.debug_pen.shapesize(1)
@@ -685,7 +696,7 @@ class Grid(Component):
             for tile in open_list:
                 if tile.f < current_tile.f:
                     current_tile = tile
-            
+
             if current_tile == end_tile:
                 path = []
                 while current_tile in parent_child_pairs:
@@ -693,21 +704,21 @@ class Grid(Component):
                     current_tile = parent_child_pairs[current_tile]
                 path.reverse()
                 return path
-            
+
             open_list.remove(current_tile)
             closed_list.append(current_tile)
-            
+
             for direction in collection.directions:
                 new_x = current_tile.grid_position.x + direction.x
                 new_y = current_tile.grid_position.y + direction.y
-                
+
                 if self.debug_mode:
                     stamp_pos = self.grid_to_world_position(Vector2(new_x, new_y))
                     self.debug_pen.color("green")
                     self.debug_pen.shapesize(0.75)
                     self.debug_pen.goto(stamp_pos.x, stamp_pos.y)
                     self.debug_pen.stamp()
-                
+
                 if not (0 <= new_x < self.grid_dimensions.x and 0 <= new_y < self.grid_dimensions.y):
                     continue
                 next_tile = self.matrix[new_x][new_y]
@@ -716,12 +727,19 @@ class Grid(Component):
                     if next_tile not in open_list or new_g < next_tile.g:
                         parent_child_pairs[next_tile] = current_tile
                         next_tile.g = new_g
-                        next_tile.h = abs(next_tile.grid_position.x - end_tile.grid_position.x) + abs(next_tile.grid_position.y - end_tile.grid_position.y)
+                        next_tile.h = abs(next_tile.grid_position.x - end_tile.grid_position.x) + abs(
+                            next_tile.grid_position.y - end_tile.grid_position.y)
                         next_tile.f = next_tile.g + next_tile.h
                         if next_tile not in open_list:
                             open_list.append(next_tile)
-                
+
         return []
+
+    def populate_dots(self):
+        tiles = self.find_tiles_by_type(0)
+        for tile in tiles:
+            dot_manager.add_pos(tile.world_position)
+        dot_manager.render_dots()
 
     def center_grid(self):
         self.game_object.transform.position.x = -(self.grid_dimensions.x * self.tile_size.x) / 2
@@ -761,7 +779,8 @@ class Grid(Component):
                 self.pen.goto(tile.world_position.x, tile.world_position.y)
                 if self.editor_mode:
                     self.pen.pencolor("white")
-                    self.pen.write(str(tile.tile_type), align="center")
+                    if tile.tile_type != 0:
+                        self.pen.write(str(tile.tile_type), align="center")
 
     def record_matrix(self):
         matrix_copy = copy.deepcopy(self.matrix)
@@ -796,7 +815,8 @@ class Grid(Component):
                     if char == "":
                         continue
                     new_grid_pos = Vector2(x, y)
-                    self.matrix[x][y] = Tile(new_grid_pos, self.grid_to_world_position(new_grid_pos), int(char), self.tile_size)
+                    self.matrix[x][y] = Tile(new_grid_pos, self.grid_to_world_position(new_grid_pos), int(char),
+                                             self.tile_size)
             file.close()
         self.render_grid()
 
@@ -804,8 +824,9 @@ game_started = False
 
 class Entity(Component):
     def __init__(self):
+        super().__init__()
         self.move_input = Vector2(0, 0)
-        self.move_speed = 2
+        self.move_speed = 3.3
         self.collider_scale = 999
 
     def start(self):
@@ -824,65 +845,156 @@ class Entity(Component):
 
 class Player(Component):
     def __init__(self):
+        super().__init__()
         self.entity = None
+        self.mouth = None
+        self.mouth_pivot = None
 
     def start(self):
+        self.mouth_pivot = GameObject()
+        self.mouth_pivot.transform.parent = self.game_object.transform
+        self.mouth = GameObject(scale=Vector2(1, 1) * 0.6, starting_comps=[Sprite("triangle", "black")])
+        self.mouth.transform.rotation = 180
+        self.mouth.transform.parent = self.mouth_pivot.transform
+        self.mouth.transform.local_position = Vector2(8, 0)
+
         self.entity = self.game_object.get_component(Entity)
+        self.entity.move_input = Vector2(1, 0)
+
         spawn_tiles = grid.find_tiles_by_type(36)
         if len(spawn_tiles) > 0:
             self.game_object.transform.position = spawn_tiles[0].world_position
 
     def update(self):
+        global game_started
+        if input_manager.get_key_down("Escape"):
+            game_started = not game_started
+
+        if not game_started:
+            return
+
         if input_manager.get_key_down("Up") or input_manager.get_key_down("w"):
             self.entity.move_input = Vector2(0, 1)
+            Lerp(self.mouth_pivot.transform, "local_rotation", 90, 0.15)
         if input_manager.get_key_down("Right") or input_manager.get_key_down("d"):
             self.entity.move_input = Vector2(1, 0)
+            Lerp(self.mouth_pivot.transform, "local_rotation", 0, 0.15)
         if input_manager.get_key_down("Down") or input_manager.get_key_down("s"):
             self.entity.move_input = Vector2(0, -1)
+            Lerp(self.mouth_pivot.transform, "local_rotation", -90, 0.15)
         if input_manager.get_key_down("Left") or input_manager.get_key_down("a"):
             self.entity.move_input = Vector2(-1, 0)
+            Lerp(self.mouth_pivot.transform, "local_rotation", 180, 0.15)
 
-def end_game():
+
+def end_game(win=False):
     global game_started
     game_started = False
+    dot_manager.dot_poses.clear()
+    dot_manager.render_dots()
+    for ghost in ghosts:
+        ghost.destroy()
+    if not win:
+        start_coroutine(lose_routine())
+    else:
+        start_coroutine(win_routine())
+
+def win_routine():
+    yield from wait_for_seconds(0.5)
+    txt = GameObject().add_component(Text("You Win", "white"))
+    yield from wait_for_seconds(1)
+    yield from wait_for_input()
+    txt.game_object.destroy()
+    pacman.destroy()
+    start_coroutine(game_start_routine())
+
+def lose_routine():
+    yield from wait_for_seconds(0.5)
+    Lerp(pacman.transform, "scale", Vector2(1, 0), 1)
+    Lerp(pacman.transform, "position", pacman.transform.position - Vector2(0, 0.5), 1)
+    yield from wait_for_seconds(1)
+    pacman.destroy()
+    yield from wait_for_seconds(0.5)
+    txt = GameObject().add_component(Text("Game Over", "white"))
+    yield from wait_for_seconds(1)
+    yield from wait_for_input()
+    txt.game_object.destroy()
+    start_coroutine(game_start_routine())
+
+
 
 class Ghost(Component):
-    def __init__(self, offset=Vector2(), speed=2, engage_distance=0):
+    def __init__(self, offset=Vector2(), speed=3, spawn=0, engage_distance=0):
+        super().__init__()
         self.entity = None
         self.path_points = []
         self.path_index = 0
         self.offset = offset
         self.speed = speed
         self.engage_distance = engage_distance
+        self.spawn = spawn
+        self.player_closest_tile = None
 
     def start(self):
+        color = self.game_object.get_component(Sprite).color
+        body = GameObject(scale=Vector2(1, 0.5), starting_comps=[Sprite("square", color)])
+        body.transform.parent = self.game_object.transform
+        body.transform.local_position = Vector2(0, -7)
+
+        for i in range(0, 2):
+            eye = GameObject(scale=Vector2(0.25, 0.35), starting_comps=[Sprite("circle", "white", 1)])
+            eye.transform.parent = self.game_object.transform
+            mult = 1
+            if i != 0:
+                mult = -1
+            eye.transform.local_position = Vector2(6 * mult, 0)
+
         self.entity = self.game_object.get_component(Entity)
         self.entity.move_speed = self.speed
-        spawn_tiles = grid.find_tiles_by_type(35)
+        spawn_tiles = grid.find_tiles_by_type(35 - self.spawn)
         if len(spawn_tiles) > 0:
             self.game_object.transform.position = spawn_tiles[0].world_position
 
     def calculate_path_to_player(self):
         closest_tile = grid.get_closest_tile_by_world_position(self.game_object.transform.position)
-        player_closest_tile = grid.get_closest_tile_by_world_position(pacman.game_object.transform.position)
+        candidate = grid.get_closest_tile_by_world_position(pacman.game_object.transform.position)
+        
         close = (self.game_object.transform.position - pacman.game_object.transform.position).magnitude() < self.engage_distance
         if not close:
             try:
-                player_closest_tile = grid.matrix[player_closest_tile.grid_position.x + self.offset.x][player_closest_tile.grid_position.y + self.offset.y]
-            except:
+                candidate = grid.matrix[candidate.grid_position.x + self.offset.x][
+                    candidate.grid_position.y + self.offset.y]
+            except IndexError:
                 pass
+        
+        if candidate.tile_type in collection.air_tile_types:
+            self.player_closest_tile = candidate
+        if self.player_closest_tile is None:
+            return
 
-        if closest_tile is not None:
-            self.path_points = grid.get_path(closest_tile, player_closest_tile)
+        if closest_tile is not None and self.player_closest_tile is not None:
+            self.path_points = grid.get_path(closest_tile, self.player_closest_tile)
             self.path_index = 0
 
     def update(self):
+        if (self.game_object.transform.position - pacman.game_object.transform.position).magnitude() < 10:
+            end_game()
+
+        if (self.game_object.transform.position - pacman.game_object.transform.position).magnitude() < 25:
+            if pacman.transform.position.x > self.game_object.transform.position.x:
+                self.entity.move_input.x = 1
+            elif pacman.transform.position.x < self.game_object.transform.position.x:
+                self.entity.move_input.x = -1
+
+            if pacman.transform.position.y > self.game_object.transform.position.y:
+                self.entity.move_input.y = 1
+            elif pacman.transform.position.y < self.game_object.transform.position.y:
+                self.entity.move_input.y = -1
+            return
+
         self.calculate_path_to_player()
         if self.path_points is None or len(self.path_points) == 0:
             return
-        
-        if (self.game_object.transform.position - pacman.game_object.transform.position).magnitude() < 20:
-            end_game()
 
         path_point = self.path_points[self.path_index]
         if path_point.world_position.x > self.game_object.transform.position.x:
@@ -895,18 +1007,52 @@ class Ghost(Component):
             self.entity.move_input = Vector2(0, -1)
         else:
             self.entity.move_input = Vector2(0, 0)
-        
+
         if (self.game_object.transform.position - path_point.world_position).magnitude() < 0.5:
             if self.path_index + 1 < len(self.path_points):
                 self.path_index += 1
             else:
                 self.path_points.clear()
-        
+
+
+class DotManager(Component):
+    def __init__(self):
+        super().__init__()
+        self.dot_poses = []
+        self.dot_pen = turtle.Turtle()
+        self.dot_pen.hideturtle()
+        self.dot_pen.color("yellow")
+        self.dot_pen.penup()
+        self.dot_pen.speed(0)
+        self.dot_pen.shape("circle")
+        self.dot_pen.shapesize(0.5)
+        self.max_dots = -1
+
+    def update(self):
+        for dot_pos in self.dot_poses:
+            if (dot_pos - pacman.game_object.transform.position).magnitude() < 15:
+                self.dot_poses.remove(dot_pos)
+                if len(self.dot_poses) <= 0:
+                    end_game(win=True)
+                self.render_dots()
+
+    def add_pos(self, pos):
+        if self.max_dots != -1 and len(self.dot_poses) >= self.max_dots:
+            return
+        self.dot_poses.append(pos)
+
+    def render_dots(self):
+        self.dot_pen.clear()
+        for dot_pos in self.dot_poses:
+            self.dot_pen.goto(dot_pos.x, dot_pos.y)
+            self.dot_pen.stamp()
+
 
 render_objects = []
 game_objects = []
 lerps = []
 coroutines = []
+dot_poses = []
 
 screen = turtle.Screen()
 
@@ -919,28 +1065,42 @@ screen_dimensions = Vector2(1280, 720)
 black_bars = GameObject().add_component(BlackBars(screen_dimensions))
 screen.setup(screen_dimensions.x, screen_dimensions.y)
 
-input_manager = Input()
-grid = GameObject().add_component(Grid())
-grid.create(Vector2(31, 21))
-grid.import_grid_from_text_file("")
+grid = None
+dot_manager = None
+input_manager = None
+pacman = None
+ghosts = None
 
 def game_start_routine():
-    global game_started
-    txt = GameObject().add_component(Text(color="white", font_size="96"))
+    global grid, dot_manager, input_manager, game_started, pacman, ghosts
+    dot_manager = GameObject().add_component(DotManager())
+
+    input_manager = Input()
+    grid = GameObject().add_component(Grid())
+    grid.create(Vector2(31, 21))
+    grid.import_grid_from_text_file("map")
+    grid.populate_dots()
+
+    pacman = GameObject(starting_comps=[Sprite("circle", "yellow"), Entity(), Player()])
+
+    blinky = GameObject(starting_comps=[Sprite("circle", "red"), Entity(), Ghost(speed=3, spawn=0)])
+    pinky = GameObject(
+        starting_comps=[Sprite("circle", "pink"), Entity(), Ghost(offset=Vector2(2, 0), speed=2.5, spawn=1, engage_distance=50)])
+    clyde = GameObject(
+        starting_comps=[Sprite("circle", "orange"), Entity(), Ghost(offset=Vector2(-2, 0), speed=2, spawn=2, engage_distance=75)])
+    seth = GameObject(
+        starting_comps=[Sprite("circle", "cyan"), Entity(), Ghost(offset=Vector2(0, -5), speed=2.5, spawn=1, engage_distance=100)])
+    ghosts = [blinky, pinky, clyde, seth]
+
+    txt = GameObject(position=Vector2(-10, 30)).add_component(Text(color="white", font_size="96"))
     for i in range(0, 3):
-        txt.text = str(3-i)
-        yield wait_for_seconds(1)
+        txt.text = str(3 - i)
+        yield from wait_for_seconds(1)
     txt.game_object.destroy()
     game_started = True
 
+
 start_coroutine(game_start_routine())
-
-pacman = GameObject(starting_comps=[Sprite("square", "yellow"), Entity(), Player()])
-
-# blinky = GameObject(starting_comps=[Sprite("square", "red"), Entity(), Ghost(speed=2)])
-# pinky = GameObject(starting_comps=[Sprite("square", "pink"), Entity(), Ghost(offset=Vector2(2, 0), speed=1.5)])
-# clyde = GameObject(starting_comps=[Sprite("square", "orange"), Entity(), Ghost(offset=Vector2(-2, 0), speed=1)])
-# seth = GameObject(starting_comps=[Sprite("square", "cyan"), Entity(), Ghost(offset=Vector2(0, -5), speed=1.5, engage_distance=100)])
 
 def refresh_screen():
     sorted_render_objects = render_objects
@@ -948,12 +1108,12 @@ def refresh_screen():
     for r in sorted_render_objects:
         r.render()
 
-
 def game_loop():
     for game_object in game_objects:
         game_object.update()
     for lerp in lerps:
         lerp.update()
+
     for coroutine in coroutines:
         try:
             next(coroutine)
